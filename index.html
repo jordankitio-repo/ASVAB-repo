@@ -320,17 +320,37 @@ function parseSimpleHTMLQuestions(html, sourceUrl){
 }
 
 function mutateQuestion(base, variant){
+  // Preserve an original copy of the question text and choices on the source object
+  // so subsequent mutations always start from the original content (prevents repeated "(practice)" appends).
   const clone = { ...base };
-  clone.q = base.q + (variant%2===0? ' (practice)':'');
+
+  const origQ = base._origQ || base.q;
+  clone._origQ = origQ;
+  clone.q = origQ + (variant % 2 === 0 ? ' (practice)' : '');
+
   clone.sourcedFrom = base.sourcedFrom || 'local-generated';
-  const shift = variant % (base.choices ? base.choices.length : 1);
-  if(base.choices){
-    const choices = base.choices.slice();
+
+  const origChoices = (base._origChoices && base._origChoices.slice()) || (base.choices ? base.choices.slice() : []);
+  clone._origChoices = origChoices.slice();
+
+  const choiceCount = origChoices.length || 0;
+  const shift = choiceCount ? (variant % choiceCount) : 0;
+
+  if(choiceCount){
+    const choices = origChoices.slice();
     for(let i=0;i<shift;i++) choices.push(choices.shift());
     clone.choices = choices;
-    if(Number.isInteger(base.answer)) clone.answer = (base.answer - shift + choices.length) % choices.length;
-    else clone.answer = null;
+    if(Number.isInteger(base.answer)){
+      // Map the original answer index to the new rotated choices
+      clone.answer = (base.answer - shift + choices.length) % choices.length;
+    } else {
+      clone.answer = null;
+    }
+  } else {
+    clone.choices = [];
+    clone.answer = null;
   }
+
   return clone;
 }
 
