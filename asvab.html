@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ASVAB Practice — Live-Sourcing Simulator</title>
+  <style>
+    :root{--accent:#0b74de;--bg:#f6f8fb;--card:#ffffff}
+    html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial}
+    body{background:var(--bg);color:#111}
+    .app{max-width:1100px;margin:20px auto;padding:18px}
+    header{display:flex;align-items:center;justify-content:space-between}
+    h1{margin:0;font-size:1.2rem}
+    .controls{display:flex;gap:8px;align-items:center}
+    button{background:var(--accent);color:#fff;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
+    button.secondary{background:#e6eef9;color:#0b4b86}
+    .layout{display:grid;grid-template-columns:1fr 340px;gap:18px;margin-top:16px}
+    .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(12,30,60,0.06)}
+    .question-nav{display:flex;flex-wrap:wrap;gap:6px}
+    .qbtn{width:44px;height:36px;border-radius:6px;background:#f3f6fb;border:1px solid #e8eef8;display:flex;align-items:center;justify-content:center;cursor:pointer}
+    .qbtn.current{outline:3px solid rgba(11,116,222,0.12);background:#e9f4ff}
+    .qbtn.answered{background:linear-gradient(180deg,#eaf8ff,#dff2ff)}
+    .qbtn.flagged{border:2px dashed #ffbf00}
+    .meta{display:flex;gap:12px;align-items:center}
+    .timer{font-weight:700}
+    .section-title{font-weight:700;margin-bottom:10px}
+    .answers{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+    .choice{padding:10px;border-radius:8px;border:1px solid #e6eef8;cursor:pointer}
+    .choice.selected{background:#eaf4ff;border-color:#bfe1ff}
+    .footer-actions{display:flex;gap:8px;margin-top:12px}
+    .answer-sheet{max-height:60vh;overflow:auto;padding:8px}
+    .small{font-size:0.85rem;color:#334}
+    .score{font-size:1.1rem;font-weight:700}
+    .note{font-size:0.9rem;color:#445}
+    .legend{display:flex;gap:10px;align-items:center;margin-top:8px}
+    .legend .item{display:flex;gap:6px;align-items:center}
+    .pill{width:18px;height:12px;border-radius:4px}
+    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#111;color:#fff;padding:2px 6px;border-radius:6px;font-size:0.8rem}
+    @media (max-width:980px){.layout{grid-template-columns:1fr}.app{padding:12px}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>ASVAB — Live-Sourcing Practice Simulator</h1>
+      <div class="controls">
+        <div class="small">Mode</div>
+        <select id="testModeSelect">
+          <option value="P&P">Paper & Pencil — 225 questions</option>
+          <option value="CAT">Computer Adaptive (sim) — 145 questions</option>
+        </select>
+        <div class="small">Simulated environment • Local only</div>
+        <button id="openAnswerSheet">Open Answer Sheet</button>
+        <button id="submitBtn" class="secondary">Submit Test</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card" id="mainCard">
+        <div class="meta" style="justify-content:space-between">
+          <div>
+            <div class="section-title" id="sectionTitle">Loading...</div>
+            <div class="small" id="qCount">Question <span id="currentIndex">—</span> / <span id="totalQ">—</span></div>
+          </div>
+          <div style="text-align:right">
+            <div class="timer" id="questionTimer">00:00</div>
+            <div class="small">Remaining for this question</div>
+          </div>
+        </div>
+
+        <hr style="margin:12px 0" />
+
+        <div id="questionArea"></div>
+
+        <div class="footer-actions">
+          <button id="prevBtn" class="secondary">Previous</button>
+          <button id="nextBtn">Next</button>
+          <button id="flagBtn" class="secondary">Flag</button>
+          <div style="flex:1"></div>
+          <div class="small">Keyboard: <span class="kbd">←</span> <span class="kbd">→</span> navigate • A–D to answer</div>
+        </div>
+      </section>
+
+      <aside class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="small">Test time</div>
+            <div class="score" id="overallTimer">00:00:00</div>
+          </div>
+          <div>
+            <div class="small">Auto-source</div>
+            <select id="sourcePolicy">
+              <option value="official">Try official sample pages (preferred)</option>
+              <option value="mirror">Try public mirrors</option>
+              <option value="local">Use bundled practice bank only</option>
+            </select>
+          </div>
+        </div>
+
+        <hr style="margin:12px 0" />
+
+        <div>
+          <div class="small">Questions</div>
+          <div class="question-nav" id="questionNav"></div>
+        </div>
+
+        <hr style="margin:12px 0" />
+
+        <div class="legend">
+          <div class="item"><div class="pill" style="background:#eaf4ff;border:1px solid #bfe1ff"></div><div class="small">Answered</div></div>
+          <div class="item"><div class="pill" style="background:#fff;border:1px solid #e8eef8"></div><div class="small">Unanswered</div></div>
+          <div class="item"><div class="pill" style="background:#fff;border:2px dashed #ffbf00"></div><div class="small">Flagged</div></div>
+        </div>
+
+        <hr style="margin:12px 0" />
+
+        <div class="small">Quick controls</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="jumpToReview" class="secondary">Jump to First Unanswered</button>
+          <button id="resetProgress" class="secondary">Reset</button>
+        </div>
+
+        <hr style="margin:12px 0" />
+        <div class="small">Score & AFQT (approx)</div>
+        <div style="margin-top:8px">
+          <div class="small">Word Knowledge + Paragraph Comprehension = VE (Verbal)</div>
+          <div class="small">AFQT (approx) = 2×VE + AR + MK</div>
+          <div style="margin-top:8px"><div class="score" id="afqtScore">—</div></div>
+        </div>
+
+      </aside>
+    </main>
+
+    <!-- Answer sheet modal -->
+    <dialog id="answerSheet" style="width:90%;max-width:900px;border-radius:12px;padding:0;border:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:#f3f6fb;border-top-left-radius:12px;border-top-right-radius:12px">
+        <div style="font-weight:700">Answer Sheet</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="small">Jump to section</div>
+          <select id="jumpSection"></select>
+          <button id="closeSheet" class="secondary">Close</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:18px;padding:16px">
+        <div style="flex:1">
+          <div class="answer-sheet" id="answerList"></div>
+        </div>
+        <div style="width:260px">
+          <div class="card" style="padding:12px">
+            <div class="small">Summary</div>
+            <div style="margin-top:8px">
+              <div class="small">Answered: <span id="sumAnswered">0</span></div>
+              <div class="small">Unanswered: <span id="sumUnanswered">0</span></div>
+              <div class="small">Flagged: <span id="sumFlagged">0</span></div>
+            </div>
+            <hr style="margin:10px 0" />
+            <button id="exportJSON">Export Answers</button>
+            <button id="finishAndScore" style="margin-top:8px">Finish & Score</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="resultDialog" style="width:420px;border-radius:12px;padding:18px;border:0">
+      <div style="font-weight:700;font-size:1.1rem">Results</div>
+      <div style="margin-top:12px" id="resultBody"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px">
+        <button id="closeResult" class="secondary">Close</button>
+      </div>
+    </dialog>
+
+    <footer style="margin-top:18px;text-align:center" class="small note">This simulator will attempt to pull public sample question pages from official sources (if allowed). If fetching is blocked by CORS or the source doesn't expose JSON, the app falls back to the bundled practice bank and expands it to match the chosen test length.</footer>
+  </div>
+
+<script>
+// ---------- LIVE-SOURCING ASVAB SIMULATOR ----------
+// Sources attempted (configurable): officialasvab.com sample pages and mirrors.
+// If remote fetches fail, the simulator will fill the selected test-length (225 or 145)
+// by duplicating and mutating bundled practice items (clearly marked). This keeps the
+// UI responsive and produces a full-length test you can use offline.
+
+// --- CONFIG ---
+const OFFICIAL_SAMPLE_ENDPOINTS = [
+  'https://www.officialasvab.com/applicants/sample-questions/',
+  'https://www.officialasvab.com/paragraph-comprehension-pc/',
+  'https://www.officialasvab.com/word-knowledge-wk/'
+];
+
+const MIRROR_ENDPOINTS = [
+  'https://www.todaysmilitary.com/joining-eligibility/asvab-test/asvab-sample-questions',
+  'https://www.military.com/join-armed-forces/asvab'
+];
+
+const LOCAL_BANK = [
+  {sectionId:'WK', sectionName:'Word Knowledge', q:'Choose the word closest in meaning to "abundant".', choices:['Scarce','Plentiful','Hidden','Fragile'], answer:1},
+  {sectionId:'WK', sectionName:'Word Knowledge', q:'Choose the opposite of "vivid".', choices:['Bright','Dull','Colorful','Sharp'], answer:1},
+  {sectionId:'PC', sectionName:'Paragraph Comprehension', q:'Plants convert sunlight into energy through photosynthesis. Which best describes the sentence?', choices:['An opinion','A process description','A question','A warning'], answer:1},
+  {sectionId:'PC', sectionName:'Paragraph Comprehension', q:'Many cities have problems with traffic congestion. Which is implied?', choices:['All cities have no traffic','Traffic is sometimes an issue','Traffic is only at night','Traffic is never a problem'], answer:1},
+  {sectionId:'AR', sectionName:'Arithmetic Reasoning', q:'If a train travels 60 miles in 1.5 hours, what is its average speed (mph)?', choices:['40','45','60','90'], answer:0},
+  {sectionId:'AR', sectionName:'Arithmetic Reasoning', q:'A jacket priced at $80 is on sale for 25% off. What is the sale price?', choices:['$20','$60','$64','$70'], answer:1},
+  {sectionId:'MK', sectionName:'Mathematics Knowledge', q:'Solve: 3(x - 2) = 9. What is x?', choices:['2','5','-1','-3'], answer:1},
+  {sectionId:'MK', sectionName:'Mathematics Knowledge', q:'What is the area of a rectangle with length 7 and width 4?', choices:['11','28','14','21'], answer:1},
+  {sectionId:'EI', sectionName:'Electronics Information', q:'Which component stores electrical energy in an electric field?', choices:['Resistor','Capacitor','Inductor','Diode'], answer:1}
+];
+
+const TARGETS = { 'P&P':225, 'CAT':145 };
+let TEST = [];
+let state = { current:0, answers:[], flagged:[], startTime:Date.now(), questionTimeLeft:45, overallSeconds:0, mode:'P&P' };
+
+// DOM
+const testModeSelect = document.getElementById('testModeSelect');
+const sourcePolicy = document.getElementById('sourcePolicy');
+const questionArea = document.getElementById('questionArea');
+const currentIndexEl = document.getElementById('currentIndex');
+const totalQEl = document.getElementById('totalQ');
+const questionNav = document.getElementById('questionNav');
+const questionTimer = document.getElementById('questionTimer');
+const overallTimer = document.getElementById('overallTimer');
+const sectionTitle = document.getElementById('sectionTitle');
+const openAnswerSheet = document.getElementById('openAnswerSheet');
+const answerSheet = document.getElementById('answerSheet');
+const answerList = document.getElementById('answerList');
+const sumAnswered = document.getElementById('sumAnswered');
+const sumUnanswered = document.getElementById('sumUnanswered');
+const sumFlagged = document.getElementById('sumFlagged');
+const jumpSection = document.getElementById('jumpSection');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const flagBtn = document.getElementById('flagBtn');
+const closeSheet = document.getElementById('closeSheet');
+const exportJSON = document.getElementById('exportJSON');
+const finishAndScore = document.getElementById('finishAndScore');
+const submitBtn = document.getElementById('submitBtn');
+const afqtScore = document.getElementById('afqtScore');
+/* use the existing testModeSelect declared earlier */
+const resultDialog = document.getElementById('resultDialog');
+const resultBody = document.getElementById('resultBody');
+const closeResult = document.getElementById('closeResult');
+const jumpToReview = document.getElementById('jumpToReview');
+const resetProgress = document.getElementById('resetProgress');
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]];} return a; }
+function formatTime(s){ const mm=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return `${mm}:${ss}`; }
+function formatHHMMSS(s){ const h=String(Math.floor(s/3600)).padStart(2,'0'); const m=String(Math.floor((s%3600)/60)).padStart(2,'0'); const sec=String(s%60).padStart(2,'0'); return `${h}:${m}:${sec}`; }
+
+async function buildTestBank(){
+  const desired = TARGETS[testModeSelect.value];
+  state.mode = testModeSelect.value;
+  TEST = [];
+  const policy = sourcePolicy.value;
+  let remoteItems = [];
+  if(policy!=='local'){
+    const endpoints = policy==='official'?OFFICIAL_SAMPLE_ENDPOINTS:MIRROR_ENDPOINTS;
+    for(const url of endpoints){
+      try{
+        const resp = await fetch(url, {mode:'cors'});
+        if(!resp.ok) continue;
+        const text = await resp.text();
+        const items = parseSimpleHTMLQuestions(text, url);
+        remoteItems = remoteItems.concat(items);
+        if(remoteItems.length >= desired) break;
+      }catch(e){ console.warn('fetch failed',url,e); }
+    }
+  }
+  TEST = remoteItems.concat(LOCAL_BANK.map(x=>Object.assign({},x,{sourcedFrom:'local'})));
+  let idx=0;
+  while(TEST.length < desired){
+    const base = TEST[idx % TEST.length];
+    const clone = mutateQuestion(base, Math.floor(idx/TEST.length));
+    TEST.push(clone);
+    idx++;
+    if(idx>5000) break;
+  }
+  if(state.mode==='P&P') shuffle(TEST);
+  else TEST = simulateCATOrder(TEST);
+  TEST = TEST.map((t,i)=>({ ...t, id:i }));
+  state.answers = Array(TEST.length).fill(null);
+  state.flagged = Array(TEST.length).fill(false);
+  state.current = 0;
+  state.startTime = Date.now();
+  state.questionTimeLeft = 60;
+  renderQuestion(); buildNav(); buildJumpSections(); startOverallTimer(); updateSummaryCounts();
+}
+
+function parseSimpleHTMLQuestions(html, sourceUrl){
+  const items = [];
+  try{
+    const text = html.replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<style[\s\S]*?<\/style>/gi,'');
+    // match both <br> and <br/> correctly
+    const lines = text.split(/<br\s*\/?>|<li[^>]*>|<p[^>]*>|<div[^>]*>|\n/gi).map(s=>s.replace(/<[^>]+>/g,'').trim()).filter(Boolean);
+    for(let i=0;i<lines.length;i++){
+      const l = lines[i];
+      if(l.length>20 && l.endsWith('?')){
+        const choices = [];
+        for(let j=1;j<=6 && i+j<lines.length;j++){
+          const c = lines[i+j];
+          if(!c) continue;
+          if(/^[A-D]\W/.test(c) || /^[A-D] /.test(c) || c.split('. ').length===2){
+            choices.push(c.replace(/^[A-D]\W?\s*/,'').trim());
+          }
+          if(choices.length>=4) break;
+        }
+        if(choices.length>=2){
+          items.push({ sectionId:'GEN', sectionName:'Sourced (uncategorized)', q:l, choices:choices, answer:null, sourcedFrom:sourceUrl });
+        }
+      }
+    }
+  }catch(e){ console.warn('parse error',e); }
+  return items;
+}
+
+function mutateQuestion(base, variant){
+  const clone = { ...base };
+  clone.q = base.q + (variant%2===0? ' (practice)':'');
+  clone.sourcedFrom = base.sourcedFrom || 'local-generated';
+  const shift = variant % (base.choices ? base.choices.length : 1);
+  if(base.choices){
+    const choices = base.choices.slice();
+    for(let i=0;i<shift;i++) choices.push(choices.shift());
+    clone.choices = choices;
+    if(Number.isInteger(base.answer)) clone.answer = (base.answer - shift + choices.length) % choices.length;
+    else clone.answer = null;
+  }
+  return clone;
+}
+
+function simulateCATOrder(bank){
+  const bySection = {};
+  bank.forEach(b=>{ const sid = b.sectionId||'GEN'; bySection[sid]=bySection[sid]||[]; bySection[sid].push(b); });
+  const order = [];
+  const desired = TARGETS['CAT'];
+  let i=0; const sids = Object.keys(bySection);
+  while(order.length < desired){
+    const sid = sids[i % sids.length];
+    const pool = bySection[sid];
+    order.push(pool[(order.length) % pool.length]);
+    i++;
+    if(i>10000) break;
+  }
+  return order;
+}
+
+function buildNav(){ questionNav.innerHTML=''; TEST.forEach((t,i)=>{ const btn=document.createElement('button'); btn.className='qbtn'; btn.textContent=i+1; btn.onclick=()=>goTo(i); btn.id='qbtn-'+i; questionNav.appendChild(btn); updateNavButton(i); }); }
+function updateNavButton(i){ const btn=document.getElementById('qbtn-'+i); if(!btn) return; btn.classList.toggle('current', state.current===i); btn.classList.toggle('answered', state.answers[i]!==null); btn.classList.toggle('flagged', state.flagged[i]); }
+function buildJumpSections(){ jumpSection.innerHTML=''; const by = {}; TEST.forEach((t,i)=>{ by[t.sectionId]=t.sectionName; }); Object.keys(by).forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=by[k]; jumpSection.appendChild(o); }); }
+
+function renderQuestion(){
+  const t = TEST[state.current];
+  currentIndexEl.textContent = state.current+1;
+  totalQEl.textContent = TEST.length;
+  sectionTitle.textContent = t ? (`Section: ${t.sectionName || t.sectionId || '—'}`) : 'Loading...';
+  state.questionTimeLeft = t && t.perQuestionTime? t.perQuestionTime : 60;
+  questionTimer.textContent = formatTime(state.questionTimeLeft);
+  questionArea.innerHTML='';
+  if(!t){ questionArea.innerHTML='<div class="small">No question loaded.</div>'; return; }
+  const qh = document.createElement('div'); qh.innerHTML = `<div style="font-weight:700;margin-bottom:8px">${state.current+1}. ${t.q}</div>`;
+  const choices = document.createElement('div'); choices.className='answers';
+  (t.choices||[]).forEach((c,ci)=>{ const ch=document.createElement('div'); ch.className='choice'; ch.tabIndex=0; ch.textContent = String.fromCharCode(65+ci)+'. '+c; if(state.answers[state.current]===ci) ch.classList.add('selected'); ch.onclick = ()=>selectAnswer(ci); ch.onkeydown = (e)=>{ if(e.key==='Enter' || e.key===' ') selectAnswer(ci); }; choices.appendChild(ch); });
+  questionArea.appendChild(qh); questionArea.appendChild(choices); updateNavButton(state.current);
+}
+
+function selectAnswer(ci){ state.answers[state.current]=ci; const choiceEls = questionArea.querySelectorAll('.choice'); choiceEls.forEach((el,idx)=>el.classList.toggle('selected', idx===ci)); updateNavButton(state.current); updateSummaryCounts(); saveProgress(); }
+function goTo(i){ if(i<0||i>=TEST.length) return; state.current=i; renderQuestion(); }
+
+let questionInterval=null; let overallInterval=null;
+function tickQuestion(){ state.questionTimeLeft--; if(state.questionTimeLeft<0){ state.questionTimeLeft=0; clearInterval(questionInterval); if(state.current < TEST.length-1){ state.current++; renderQuestion(); startQuestionTick(); } return; } questionTimer.textContent = formatTime(state.questionTimeLeft); }
+function startQuestionTick(){ if(questionInterval) clearInterval(questionInterval); questionTimer.textContent = formatTime(state.questionTimeLeft); questionInterval = setInterval(()=>{ tickQuestion(); },1000); }
+function startOverallTimer(){ if(overallInterval) clearInterval(overallInterval); overallInterval = setInterval(()=>{ state.overallSeconds = Math.floor((Date.now()-state.startTime)/1000); overallTimer.textContent = formatHHMMSS(state.overallSeconds); },1000); }
+
+function openSheet(){ buildAnswerList(); answerSheet.showModal(); }
+function closeSheetFn(){ answerSheet.close(); }
+function buildAnswerList(){ answerList.innerHTML=''; TEST.forEach((t,i)=>{ const row=document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.padding='6px'; row.style.borderBottom='1px solid #f0f4fb'; const left=document.createElement('div'); left.innerHTML = `<div style="font-weight:700">${i+1}. ${t.sectionName || t.sectionId}</div><div class="small">${t.q}</div>`; const right=document.createElement('div'); const ans = state.answers[i]===null?'<span class="small">—</span>':String.fromCharCode(65+state.answers[i]); right.innerHTML = `<div style="text-align:right"><div>Ans: ${ans}</div><div class="small" style="margin-top:6px">${state.flagged[i] ? 'Flagged' : ''}</div><div style="margin-top:6px"><button data-i="${i}" class="gotoBtn">Go</button></div></div>`; row.appendChild(left); row.appendChild(right); answerList.appendChild(row); }); answerList.querySelectorAll('.gotoBtn').forEach(b=>b.addEventListener('click',e=>{ const i=Number(e.target.dataset.i); goTo(i); answerSheet.close(); })); updateSummaryCounts(); }
+function updateSummaryCounts(){ const answered = state.answers.filter(a=>a!==null).length; const unanswered = TEST.length - answered; const flagged = state.flagged.filter(f=>f).length; sumAnswered.textContent = answered; sumUnanswered.textContent = unanswered; sumFlagged.textContent = flagged; }
+
+function finishAndScoreFn(){ const sectionTotals={}; const sectionCorrect={}; TEST.forEach((t,i)=>{ sectionTotals[t.sectionId] = (sectionTotals[t.sectionId]||0)+1; const isCorrect = (Number.isInteger(t.answer) && state.answers[i]===t.answer); if(isCorrect) sectionCorrect[t.sectionId]=(sectionCorrect[t.sectionId]||0)+1; }); let html = '<div style="display:flex;flex-direction:column;gap:8px">'; let VE=0, AR=0, MK=0; for(const sid in sectionTotals){ const correct = sectionCorrect[sid]||0; const total = sectionTotals[sid]; html += `<div><strong>${sid}</strong>: ${correct} / ${total} correct</div>`; if(sid==='WK' || sid==='PC') VE += correct; if(sid==='AR') AR = correct; if(sid==='MK') MK = correct; } const afqtRaw = 2*VE + AR + MK; html += `<div style="margin-top:8px"><strong>AFQT (approx raw):</strong> 2×VE(${VE}) + AR(${AR}) + MK(${MK}) = <strong>${afqtRaw}</strong></div>`; html += `<div class="small" style="margin-top:6px">Note: This is only an approximate raw composite. Official AFQT uses scaled scores and percentile conversions.</div>`; html += '</div>'; resultBody.innerHTML = html; resultDialog.showModal(); afqtScore.textContent = afqtRaw; }
+
+function saveProgress(){ try{ localStorage.setItem('asvab_state_live', JSON.stringify({state,TEST})); }catch(e){} }
+function loadProgress(){ try{ const s = JSON.parse(localStorage.getItem('asvab_state_live')); if(s){ TEST = s.TEST || TEST; state = Object.assign(state, s.state || {}); } }catch(e){} }
+
+openAnswerSheet.addEventListener('click',()=>openSheet()); closeSheet.addEventListener('click',()=>closeSheetFn()); prevBtn.addEventListener('click',()=>{ if(state.current>0){ state.current--; renderQuestion(); } }); nextBtn.addEventListener('click',()=>{ if(state.current<TEST.length-1){ state.current++; renderQuestion(); } }); flagBtn.addEventListener('click',()=>{ state.flagged[state.current] = !state.flagged[state.current]; updateNavButton(state.current); updateSummaryCounts(); }); exportJSON.addEventListener('click',()=>{ const data={state,TEST}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='asvab_answers.json'; a.click(); URL.revokeObjectURL(url); }); finishAndScore.addEventListener('click',()=>{ answerSheet.close(); finishAndScoreFn(); }); submitBtn.addEventListener('click',()=>{ if(confirm('Submit test and score now?')) finishAndScoreFn(); }); closeResult.addEventListener('click',()=>resultDialog.close()); jumpSection.addEventListener('change',(e)=>{ const sid=e.target.value; const idx = TEST.findIndex(t=>t.sectionId===sid); if(idx>=0){ goTo(idx); answerSheet.close(); } }); jumpToReview.addEventListener('click',()=>{ let idx = state.answers.findIndex(a=>a===null); if(idx===-1) idx=0; goTo(idx); }); resetProgress.addEventListener('click',()=>{ if(confirm('Reset all answers and progress?')){ state.answers = Array(TEST.length).fill(null); state.flagged = Array(TEST.length).fill(false); state.current = 0; saveProgress(); buildNav(); renderQuestion(); updateSummaryCounts(); } });
+
+window.addEventListener('keydown',(e)=>{ if(e.key==='ArrowLeft') prevBtn.click(); if(e.key==='ArrowRight') nextBtn.click(); if(e.key.toUpperCase()>='A' && e.key.toUpperCase()<='D'){ const idx = e.key.toUpperCase().charCodeAt(0)-65; selectAnswer(idx); } });
+testModeSelect.addEventListener('change',()=>{ buildTestBank(); });
+modeSelect.addEventListener('change',()=>{ buildTestBank(); });
+
+loadProgress();
+(async ()=>{ await buildTestBank(); startQuestionTick(); setInterval(saveProgress,5000); })();
+
+</script>
+</body>
+</html>
