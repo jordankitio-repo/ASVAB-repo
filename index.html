@@ -50,6 +50,7 @@
           <option value="CAT">Computer Adaptive (sim) — 145 questions</option>
         </select>
         <div class="small">Simulated environment • Local only</div>
+        <button id="startBtn">Start Test</button>
         <button id="openAnswerSheet">Open Answer Sheet</button>
         <button id="submitBtn" class="secondary">Submit Test</button>
       </div>
@@ -89,7 +90,7 @@
           </div>
           <div>
             <div class="small">Auto-source</div>
-            <select id="sourcePolicy">
+            <select id="sourcePolicy"></select>
               <option value="official">Try official sample pages (preferred)</option>
               <option value="mirror">Try public mirrors</option>
               <option value="local">Use bundled practice bank only</option>
@@ -106,7 +107,7 @@
 
         <hr style="margin:12px 0" />
 
-        <div class="legend">
+        <div class="legend"></div>
           <div class="item"><div class="pill" style="background:#eaf4ff;border:1px solid #bfe1ff"></div><div class="small">Answered</div></div>
           <div class="item"><div class="pill" style="background:#fff;border:1px solid #e8eef8"></div><div class="small">Unanswered</div></div>
           <div class="item"><div class="pill" style="background:#fff;border:2px dashed #ffbf00"></div><div class="small">Flagged</div></div>
@@ -132,7 +133,7 @@
     </main>
 
     <!-- Answer sheet modal -->
-    <dialog id="answerSheet" style="width:90%;max-width:900px;border-radius:12px;padding:0;border:0">
+    <dialog id="answerSheet" style="width:90%;max-width:900px;border-radius:12px;padding:0;border:0"></dialog>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:#f3f6fb;border-top-left-radius:12px;border-top-right-radius:12px">
         <div style="font-weight:700">Answer Sheet</div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -205,7 +206,7 @@ const LOCAL_BANK = [
 
 const TARGETS = { 'P&P':225, 'CAT':145 };
 let TEST = [];
-let state = { current:0, answers:[], flagged:[], startTime:Date.now(), questionTimeLeft:45, overallSeconds:0, mode:'P&P' };
+let state = { current:0, answers:[], flagged:[], startTime:null, questionTimeLeft:45, overallSeconds:0, mode:'P&P', started:false };
 
 // DOM
 const testModeSelect = document.getElementById('testModeSelect');
@@ -232,7 +233,7 @@ const exportJSON = document.getElementById('exportJSON');
 const finishAndScore = document.getElementById('finishAndScore');
 const submitBtn = document.getElementById('submitBtn');
 const afqtScore = document.getElementById('afqtScore');
-/* use the existing testModeSelect declared earlier */
+const startBtn = document.getElementById('startBtn');
 const resultDialog = document.getElementById('resultDialog');
 const resultBody = document.getElementById('resultBody');
 const closeResult = document.getElementById('closeResult');
@@ -246,6 +247,9 @@ function formatHHMMSS(s){ const h=String(Math.floor(s/3600)).padStart(2,'0'); co
 async function buildTestBank(){
   const desired = TARGETS[testModeSelect.value];
   state.mode = testModeSelect.value;
+  state.started = false; // do not start until user presses Start
+  state.overallSeconds = 0;
+  state.startTime = null;
   TEST = [];
   const policy = sourcePolicy.value;
   let remoteItems = [];
@@ -277,9 +281,15 @@ async function buildTestBank(){
   state.answers = Array(TEST.length).fill(null);
   state.flagged = Array(TEST.length).fill(false);
   state.current = 0;
-  state.startTime = Date.now();
   state.questionTimeLeft = 60;
-  renderQuestion(); buildNav(); buildJumpSections(); startOverallTimer(); updateSummaryCounts();
+  renderQuestion(); buildNav(); buildJumpSections(); updateSummaryCounts();
+  // ensure start control state
+  startBtn.disabled = false;
+  prevBtn.disabled = true;
+  nextBtn.disabled = true;
+  flagBtn.disabled = true;
+  questionTimer.textContent = formatTime(state.questionTimeLeft);
+  overallTimer.textContent = formatHHMMSS(0);
 }
 
 function parseSimpleHTMLQuestions(html, sourceUrl){
@@ -349,23 +359,54 @@ function renderQuestion(){
   currentIndexEl.textContent = state.current+1;
   totalQEl.textContent = TEST.length;
   sectionTitle.textContent = t ? (`Section: ${t.sectionName || t.sectionId || '—'}`) : 'Loading...';
-  state.questionTimeLeft = t && t.perQuestionTime? t.perQuestionTime : 60;
+  state.questionTimeLeft = t && t.perQuestionTime? t.perQuestionTime : state.questionTimeLeft || 60;
   questionTimer.textContent = formatTime(state.questionTimeLeft);
   questionArea.innerHTML='';
   if(!t){ questionArea.innerHTML='<div class="small">No question loaded.</div>'; return; }
-  const qh = document.createElement('div'); qh.innerHTML = `<div style="font-weight:700;margin-bottom:8px">${state.current+1}. ${t.q}</div>`;
+
+  const qh = document.createElement('div');
+  qh.innerHTML = `<div style="font-weight:700;margin-bottom:8px">${state.current+1}. ${t.q}</div>`;
+
   const choices = document.createElement('div'); choices.className='answers';
   (t.choices||[]).forEach((c,ci)=>{ const ch=document.createElement('div'); ch.className='choice'; ch.tabIndex=0; ch.textContent = String.fromCharCode(65+ci)+'. '+c; if(state.answers[state.current]===ci) ch.classList.add('selected'); ch.onclick = ()=>selectAnswer(ci); ch.onkeydown = (e)=>{ if(e.key==='Enter' || e.key===' ') selectAnswer(ci); }; choices.appendChild(ch); });
   questionArea.appendChild(qh); questionArea.appendChild(choices); updateNavButton(state.current);
+
+  // controls enabled only after start
+  prevBtn.disabled = !state.started || state.current===0;
+  nextBtn.disabled = !state.started || state.current>=TEST.length-1;
+  flagBtn.disabled = !state.started;
+  startBtn.disabled = state.started;
 }
 
-function selectAnswer(ci){ state.answers[state.current]=ci; const choiceEls = questionArea.querySelectorAll('.choice'); choiceEls.forEach((el,idx)=>el.classList.toggle('selected', idx===ci)); updateNavButton(state.current); updateSummaryCounts(); saveProgress(); }
+function selectAnswer(ci){
+  if(!state.started){ alert('Press Start to begin the test'); return; }
+  state.answers[state.current]=ci;
+  const choiceEls = questionArea.querySelectorAll('.choice'); choiceEls.forEach((el,idx)=>el.classList.toggle('selected', idx===ci));
+  updateNavButton(state.current); updateSummaryCounts(); saveProgress();
+}
 function goTo(i){ if(i<0||i>=TEST.length) return; state.current=i; renderQuestion(); }
 
 let questionInterval=null; let overallInterval=null;
 function tickQuestion(){ state.questionTimeLeft--; if(state.questionTimeLeft<0){ state.questionTimeLeft=0; clearInterval(questionInterval); if(state.current < TEST.length-1){ state.current++; renderQuestion(); startQuestionTick(); } return; } questionTimer.textContent = formatTime(state.questionTimeLeft); }
 function startQuestionTick(){ if(questionInterval) clearInterval(questionInterval); questionTimer.textContent = formatTime(state.questionTimeLeft); questionInterval = setInterval(()=>{ tickQuestion(); },1000); }
 function startOverallTimer(){ if(overallInterval) clearInterval(overallInterval); overallInterval = setInterval(()=>{ state.overallSeconds = Math.floor((Date.now()-state.startTime)/1000); overallTimer.textContent = formatHHMMSS(state.overallSeconds); },1000); }
+
+function startTest(){
+  if(state.started) return;
+  state.started = true;
+  state.startTime = Date.now();
+  // if questionTimeLeft was undefined, set default
+  state.questionTimeLeft = state.questionTimeLeft || 60;
+  startOverallTimer();
+  startQuestionTick();
+  renderQuestion();
+  startBtn.disabled = true;
+  // enable nav buttons appropriately
+  prevBtn.disabled = state.current===0;
+  nextBtn.disabled = state.current>=TEST.length-1;
+  flagBtn.disabled = false;
+  saveProgress();
+}
 
 function openSheet(){ buildAnswerList(); answerSheet.showModal(); }
 function closeSheetFn(){ answerSheet.close(); }
@@ -375,16 +416,42 @@ function updateSummaryCounts(){ const answered = state.answers.filter(a=>a!==nul
 function finishAndScoreFn(){ const sectionTotals={}; const sectionCorrect={}; TEST.forEach((t,i)=>{ sectionTotals[t.sectionId] = (sectionTotals[t.sectionId]||0)+1; const isCorrect = (Number.isInteger(t.answer) && state.answers[i]===t.answer); if(isCorrect) sectionCorrect[t.sectionId]=(sectionCorrect[t.sectionId]||0)+1; }); let html = '<div style="display:flex;flex-direction:column;gap:8px">'; let VE=0, AR=0, MK=0; for(const sid in sectionTotals){ const correct = sectionCorrect[sid]||0; const total = sectionTotals[sid]; html += `<div><strong>${sid}</strong>: ${correct} / ${total} correct</div>`; if(sid==='WK' || sid==='PC') VE += correct; if(sid==='AR') AR = correct; if(sid==='MK') MK = correct; } const afqtRaw = 2*VE + AR + MK; html += `<div style="margin-top:8px"><strong>AFQT (approx raw):</strong> 2×VE(${VE}) + AR(${AR}) + MK(${MK}) = <strong>${afqtRaw}</strong></div>`; html += `<div class="small" style="margin-top:6px">Note: This is only an approximate raw composite. Official AFQT uses scaled scores and percentile conversions.</div>`; html += '</div>'; resultBody.innerHTML = html; resultDialog.showModal(); afqtScore.textContent = afqtRaw; }
 
 function saveProgress(){ try{ localStorage.setItem('asvab_state_live', JSON.stringify({state,TEST})); }catch(e){} }
-function loadProgress(){ try{ const s = JSON.parse(localStorage.getItem('asvab_state_live')); if(s){ TEST = s.TEST || TEST; state = Object.assign(state, s.state || {}); } }catch(e){} }
+function loadProgress(){ try{ const s = JSON.parse(localStorage.getItem('asvab_state_live')); if(s){ TEST = s.TEST || TEST; // do not override started flag from saved state to ensure fresh start behavior
+      if(s.state){
+        // copy answers and flagged if present, keep started=false unless explicitly starting
+        state.answers = s.state.answers || state.answers;
+        state.flagged = s.state.flagged || state.flagged;
+        state.current = s.state.current || state.current;
+        state.mode = s.state.mode || state.mode;
+        state.questionTimeLeft = s.state.questionTimeLeft || state.questionTimeLeft;
+        state.overallSeconds = s.state.overallSeconds || 0;
+        state.startTime = null;
+        state.started = false;
+      }
+    } }catch(e){} }
 
-openAnswerSheet.addEventListener('click',()=>openSheet()); closeSheet.addEventListener('click',()=>closeSheetFn()); prevBtn.addEventListener('click',()=>{ if(state.current>0){ state.current--; renderQuestion(); } }); nextBtn.addEventListener('click',()=>{ if(state.current<TEST.length-1){ state.current++; renderQuestion(); } }); flagBtn.addEventListener('click',()=>{ state.flagged[state.current] = !state.flagged[state.current]; updateNavButton(state.current); updateSummaryCounts(); }); exportJSON.addEventListener('click',()=>{ const data={state,TEST}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='asvab_answers.json'; a.click(); URL.revokeObjectURL(url); }); finishAndScore.addEventListener('click',()=>{ answerSheet.close(); finishAndScoreFn(); }); submitBtn.addEventListener('click',()=>{ if(confirm('Submit test and score now?')) finishAndScoreFn(); }); closeResult.addEventListener('click',()=>resultDialog.close()); jumpSection.addEventListener('change',(e)=>{ const sid=e.target.value; const idx = TEST.findIndex(t=>t.sectionId===sid); if(idx>=0){ goTo(idx); answerSheet.close(); } }); jumpToReview.addEventListener('click',()=>{ let idx = state.answers.findIndex(a=>a===null); if(idx===-1) idx=0; goTo(idx); }); resetProgress.addEventListener('click',()=>{ if(confirm('Reset all answers and progress?')){ state.answers = Array(TEST.length).fill(null); state.flagged = Array(TEST.length).fill(false); state.current = 0; saveProgress(); buildNav(); renderQuestion(); updateSummaryCounts(); } });
+openAnswerSheet.addEventListener('click',()=>openSheet());
+closeSheet.addEventListener('click',()=>closeSheetFn());
+prevBtn.addEventListener('click',()=>{ if(prevBtn.disabled) return; if(state.current>0){ state.current--; renderQuestion(); } });
+nextBtn.addEventListener('click',()=>{ if(nextBtn.disabled) return; if(state.current<TEST.length-1){ state.current++; renderQuestion(); } });
+flagBtn.addEventListener('click',()=>{ if(flagBtn.disabled) return; state.flagged[state.current] = !state.flagged[state.current]; updateNavButton(state.current); updateSummaryCounts(); });
+exportJSON.addEventListener('click',()=>{ const data={state,TEST}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='asvab_answers.json'; a.click(); URL.revokeObjectURL(url); });
+finishAndScore.addEventListener('click',()=>{ answerSheet.close(); finishAndScoreFn(); });
+submitBtn.addEventListener('click',()=>{ if(confirm('Submit test and score now?')) finishAndScoreFn(); });
+closeResult.addEventListener('click',()=>resultDialog.close());
+jumpSection.addEventListener('change',(e)=>{ const sid=e.target.value; const idx = TEST.findIndex(t=>t.sectionId===sid); if(idx>=0){ goTo(idx); answerSheet.close(); } });
+jumpToReview.addEventListener('click',()=>{ let idx = state.answers.findIndex(a=>a===null); if(idx===-1) idx=0; goTo(idx); });
+resetProgress.addEventListener('click',()=>{ if(confirm('Reset all answers and progress?')){ state.answers = Array(TEST.length).fill(null); state.flagged = Array(TEST.length).fill(false); state.current = 0; saveProgress(); buildNav(); renderQuestion(); updateSummaryCounts(); } });
+
+startBtn.addEventListener('click', ()=>{ startTest(); });
 
 window.addEventListener('keydown',(e)=>{ if(e.key==='ArrowLeft') prevBtn.click(); if(e.key==='ArrowRight') nextBtn.click(); if(e.key.toUpperCase()>='A' && e.key.toUpperCase()<='D'){ const idx = e.key.toUpperCase().charCodeAt(0)-65; selectAnswer(idx); } });
 testModeSelect.addEventListener('change',()=>{ buildTestBank(); });
-modeSelect.addEventListener('change',()=>{ buildTestBank(); });
 
 loadProgress();
-(async ()=>{ await buildTestBank(); startQuestionTick(); setInterval(saveProgress,5000); })();
+(async ()=>{ await buildTestBank(); // do NOT auto-start timers; user must press Start
+  setInterval(saveProgress,5000);
+})();
 
 </script>
 </body>
